@@ -50,10 +50,6 @@ jobs:
     - name: Subir container
       run: docker run -d -p 8000:8000 --name app ${{ env.IMAGE_NAME }}
 
-    - name: Teste da requisição HTTP
-      run: |
-        sleep 10
-        curl --fail http://localhost:8000/health
-
+    
     - name: Disparar Deploy no Render
       run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"

@@ -1,0 +1,59 @@
+# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: FastAPI - Basic Check Projeto final Backend Ebac
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  fastapi-tests:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: fastapi-app:latest
+
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v3
+    - name: Instalar Python 3.14
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+    - name: Instalar Poetry
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+    - name: Instalando as dependências com Poetry
+      run: poetry install --no-interaction --no-root
+    - name: Testando o arquivo pytest
+      run: |
+        poetry run pytest
+
+    - name: Verificação de cobertura dos tests
+      run: poetry run pytest --cov
+        
+    - name: Configurar Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build da imagem com cache
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        load: true
+        tags: ${{ env.IMAGE_NAME }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Subir container
+      run: docker run -d -p 8000:8000 --name app ${{ env.IMAGE_NAME }}
+
+    - name: Teste da requisição HTTP
+      run: |
+        sleep 10
+        curl --fail http://localhost:8000/health
+
+    - name: Disparar Deploy no Render
+      run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"

@@ -1,8 +1,14 @@
 from fastapi import FastAPI, HTTPException
 import requests
+import redis
+import os
 
 app = FastAPI()
 
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = os.getenv("REDIS_PORT", 6379)
+
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 @app.get("/pokemons")
 def get_pokemons(
@@ -28,12 +34,18 @@ page: int = 1, limit: int = 20):
 
 @app.get("/pokemons/{id}")
 def get_pokemon(id: int):
+    cache_key = f"pokemon:{id}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data:
+        return json.loads(cached_data)
+    
     url = f"https://pokeapi.co/api/v2/pokemon/{id}/"
     response = requests.get(url)
     if response.status_code != 200:
         raise HTTPException(status_code=404, detail="Pokémon não encontrado.")
+    
     data = response.json()
-    return {
+    result = {
         "name": data["name"],
         "id": data["id"],
         "height": data["height"],
@@ -44,3 +56,6 @@ def get_pokemon(id: int):
             "back_default": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/{}.png".format(data["id"])
         }
     }
+    redis_client.setex(cache_key, json.dumps(result), 600)
+    return result
+    

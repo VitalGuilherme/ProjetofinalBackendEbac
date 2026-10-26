@@ -17,6 +17,9 @@ dependencies = [
     "requests (>=2.34.2,<3.0.0)"
 ]
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

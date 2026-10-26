@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 import requests
 import redis
 import os
+import json
 
 app = FastAPI()
 
@@ -38,7 +39,7 @@ def get_pokemon(id: int):
     cached_data = redis_client.get(cache_key)
     if cached_data:
         return json.loads(cached_data)
-    
+
     url = f"https://pokeapi.co/api/v2/pokemon/{id}/"
     response = requests.get(url)
     if response.status_code != 200:
@@ -56,6 +57,6 @@ def get_pokemon(id: int):
             "back_default": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/{}.png".format(data["id"])
         }
     }
-    redis_client.setex(cache_key, json.dumps(result), 600)
+    redis_client.set(cache_key, json.dumps(result), 60)  # Cache por 1 minutos
     return result
     

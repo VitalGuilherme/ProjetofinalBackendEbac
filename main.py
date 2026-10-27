@@ -4,12 +4,21 @@ import redis
 import os
 import json
 
-app = FastAPI()
+app = FastAPI(
+    title="Projeto final curso Backend Python Ebac",
+    description="API para gerenciar catálogos de pokémons via requisições HTTP na API PokéAPI.",
+    version="1.0.0",
+    contact={
+        "name":"Guilherme Vital",
+        "email":"guilhermev.j.santos@gmail.com"
+    }
+)
 
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = os.getenv("REDIS_PORT", 6379)
+#REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+#REDIS_PORT = os.getenv("REDIS_PORT", 6379)
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
-redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 @app.get("/pokemons")
 def get_pokemons(

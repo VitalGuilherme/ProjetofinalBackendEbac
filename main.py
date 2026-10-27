@@ -3,6 +3,9 @@ import requests
 import redis
 import os
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Projeto final curso Backend Python Ebac",
@@ -45,15 +48,19 @@ page: int = 1, limit: int = 20):
 @app.get("/pokemons/{id}")
 def get_pokemon(id: int):
     cache_key = f"pokemon:{id}"
-    cached_data = redis_client.get(cache_key)
-    if cached_data:
-        return json.loads(cached_data)
+
+    try:
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            return json.loads(cached_data)
+    except redis.exceptions.RedisError as e:
+        logger.warning(f"Redis indisponível ao ler o cache: {e}")
 
     url = f"https://pokeapi.co/api/v2/pokemon/{id}/"
-    response = requests.get(url)
+    response = requests.get(url, timeout=10)
     if response.status_code != 200:
         raise HTTPException(status_code=404, detail="Pokémon não encontrado.")
-    
+
     data = response.json()
     result = {
         "name": data["name"],
@@ -62,10 +69,15 @@ def get_pokemon(id: int):
         "weight": data["weight"],
         "types": [t["type"]["name"] for t in data["types"]],
         "sprite": {
-            "front_default": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/{}.png".format(data["id"]),
-            "back_default": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/{}.png".format(data["id"])
-        }
+            "front_default": f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/{data['id']}.png",
+            "back_default": f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/{data['id']}.png",
+        },
     }
-    redis_client.set(cache_key, json.dumps(result), 60)  # Cache por 1 minutos
+
+    try:
+        redis_client.setex(cache_key, 60, json.dumps(result))
+    except redis.exceptions.RedisError as e:
+        logger.warning(f"Redis indisponível ao salvar o cache: {e}")
+
     return result
     

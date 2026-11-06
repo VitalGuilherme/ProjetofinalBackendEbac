@@ -123,7 +123,7 @@ def get_pokemon(id: int):
 
 
 @app.post("/adicionar_pokemons")
-def create_pokemon(pokemon: PokemonDB, db: Session = Depends(session_db)):
+def create_pokemon(pokemon: Pokemon, db: Session = Depends(session_db)):
     db_pokemon = db.query(PokemonDB).filter(PokemonDB.id == pokemon.id).first()
     if db_pokemon:
         raise HTTPException(status_code=400, detail="Pokémon já existe no banco de dados.")
@@ -143,7 +143,7 @@ def create_pokemon(pokemon: PokemonDB, db: Session = Depends(session_db)):
     return novo_pokemon
 
 @app.put("/atualizar_pokemons/{id}")
-def update_pokemon(id: int, pokemon: PokemonDB, db: Session = Depends(session_db)):
+def update_pokemon(id: int, pokemon: Pokemon, db: Session = Depends(session_db)):
     db_pokemon = db.query(PokemonDB).filter(PokemonDB.id == id).first()
     if not db_pokemon:
         raise HTTPException(status_code=404, detail="Pokémon não encontrado no banco de dados.")

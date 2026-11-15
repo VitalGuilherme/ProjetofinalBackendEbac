@@ -1,0 +1,207 @@
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from main import app, Base, session_db
+
+
+engine_teste = create_engine(
+    "sqlite://",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+SessionTeste = sessionmaker(autocommit=False, autoflush=False, bind=engine_teste)
+
+
+def session_db_teste():
+    db = SessionTeste()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def client():
+    """Cria as tabelas do zero antes de cada teste e apaga ao final."""
+    Base.metadata.create_all(bind=engine_teste)
+    app.dependency_overrides[session_db] = session_db_teste
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+    Base.metadata.drop_all(bind=engine_teste)
+
+
+def pokemon_valido(**alteracoes):
+    dados = {
+        "name": "Pikachu",
+        "height": 4,
+        "weight": 60,
+        "types": ["electric"],
+        "sprite_front_default": "https://exemplo.com/front.png",
+        "sprite_back_default": "https://exemplo.com/back.png",
+    }
+    dados.update(alteracoes)
+    return dados
+
+
+def cadastrar(client, **alteracoes):
+    response = client.post("/adicionar_pokemons", json=pokemon_valido(**alteracoes))
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_post_cria_pokemon(client):
+    response = client.post("/adicionar_pokemons", json=pokemon_valido())
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["id"] == 1
+    assert data["name"] == "pikachu"
+    assert data["height"] == 4
+    assert data["weight"] == 60
+    assert data["types"] == "electric"
+
+
+def test_post_salva_varios_tipos(client):
+    data = cadastrar(client, name="Charizard", types=["fire", "flying"])
+    assert data["types"] == "fire,flying"
+
+
+def test_post_nome_duplicado_retorna_400(client):
+    cadastrar(client)
+    response = client.post("/adicionar_pokemons", json=pokemon_valido(name="PIKACHU"))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Pokémon já existe no banco de dados."
+
+
+def test_post_sem_campo_obrigatorio_retorna_422(client):
+    dados = pokemon_valido()
+    del dados["name"]
+    response = client.post("/adicionar_pokemons", json=dados)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "campo, valor",
+    [
+        ("name", ""),
+        ("height", 0),
+        ("weight", -5),
+        ("types", []),
+        ("height", "alto"),
+    ],
+)
+def test_post_dados_invalidos_retorna_422(client, campo, valor):
+    response = client.post("/adicionar_pokemons", json=pokemon_valido(**{campo: valor}))
+    assert response.status_code == 422
+
+
+
+def test_get_lista_vazia(client):
+    response = client.get("/listar_pokemons")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == []
+    assert response.json()["total"] == 0
+
+
+def test_get_lista_pokemons_cadastrados(client):
+    cadastrar(client, name="Pikachu")
+    cadastrar(client, name="Bulbasaur")
+
+    response = client.get("/listar_pokemons")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+    assert [p["name"] for p in response.json()["data"]] == ["pikachu", "bulbasaur"]
+
+
+def test_get_paginacao(client):
+    for nome in ["a", "b", "c"]:
+        cadastrar(client, name=nome)
+
+    response = client.get("/listar_pokemons?page=2&limit=2")
+
+    assert response.status_code == 200
+    assert [p["name"] for p in response.json()["data"]] == ["c"]
+
+
+def test_get_paginacao_invalida_retorna_400(client):
+    assert client.get("/listar_pokemons?page=0").status_code == 400
+
+
+def test_get_por_id(client):
+    criado = cadastrar(client)
+    response = client.get(f"/listar_pokemons/{criado['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "pikachu"
+
+
+def test_get_por_id_inexistente_retorna_404(client):
+    assert client.get("/listar_pokemons/999").status_code == 404
+
+
+
+
+def test_put_atualiza_pokemon(client):
+    criado = cadastrar(client)
+    response = client.put(
+        f"/atualizar_pokemons/{criado['id']}",
+        json=pokemon_valido(weight=70, types=["electric", "fairy"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["weight"] == 70
+    assert response.json()["types"] == "electric,fairy"
+
+    
+    salvo = client.get(f"/listar_pokemons/{criado['id']}").json()
+    assert salvo["weight"] == 70
+
+
+def test_put_id_inexistente_retorna_404(client):
+    response = client.put("/atualizar_pokemons/999", json=pokemon_valido())
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Pokémon não encontrado no banco de dados."
+
+
+def test_put_nome_de_outro_pokemon_retorna_400(client):
+    pikachu = cadastrar(client, name="Pikachu")
+    cadastrar(client, name="Raichu")
+
+    response = client.put(f"/atualizar_pokemons/{pikachu['id']}", json=pokemon_valido(name="raichu"))
+
+    assert response.status_code == 400
+
+
+def test_put_dados_invalidos_retorna_422(client):
+    criado = cadastrar(client)
+    response = client.put(f"/atualizar_pokemons/{criado['id']}", json=pokemon_valido(height=0))
+    assert response.status_code == 422
+
+
+
+def test_delete_remove_pokemon(client):
+    criado = cadastrar(client)
+    response = client.delete(f"/deletar_pokemons/{criado['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Pokémon deletado com sucesso."
+
+    # Confere se saiu mesmo do banco
+    assert client.get(f"/listar_pokemons/{criado['id']}").status_code == 404
+
+
+def test_delete_id_inexistente_retorna_404(client):
+    assert client.delete("/deletar_pokemons/999").status_code == 404
+
+
+def test_delete_duas_vezes_retorna_404(client):
+    criado = cadastrar(client)
+    assert client.delete(f"/deletar_pokemons/{criado['id']}").status_code == 200
+    assert client.delete(f"/deletar_pokemons/{criado['id']}").status_code == 404
